@@ -2,7 +2,7 @@ module M_structs
 
 using JuMP
 
-export SPs,MLo,MUo,RMPs
+export SPs,MLo,MUo,RMPs,LSs
 
 mutable struct SPs{AF1<:Array{Float64,1}}
     m::JuMP.Model
@@ -21,6 +21,14 @@ end
 mutable struct MUo
     m::JuMP.Model
     v::Array{JuMP.VariableRef,2}
+end
+
+mutable struct LSs{AF1<:Array{Float64,1},AF2<:Array{Float64,2}}
+    G::AF2
+   Bi::AF2
+   Bo::AF2
+    R::AF2
+    E::AF1
 end
 
 mutable struct RMPs{I<:Int64,F<:Float64,AF1<:Array{Float64,1},AF2<:Array{Float64,2}}
@@ -47,6 +55,8 @@ mutable struct RMPs{I<:Int64,F<:Float64,AF1<:Array{Float64,1},AF2<:Array{Float64
    it::I
     ϵ::F
     J::I
+   ls::LSs
 end
+
 
 end

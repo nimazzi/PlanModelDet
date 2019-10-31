@@ -79,6 +79,7 @@ function SP!(m::JuMP.Model,
     @variable(m, yI[ps.B,ps.S,ps.H] >= 0  )
     @variable(m, yO[ps.B,ps.S,ps.H] >= 0  )
     @variable(m, yL[ps.B,ps.S,ps.H] >= 0  )
+    @variable(m, yR[ps.R,ps.S,ps.H] >= 0  )
     @variable(m, yS[     ps.S,ps.H] >= 0  )
     @variable(m, x[1:hc.nx] )
     # */ ----------- obj function ---------- /* #
@@ -93,7 +94,8 @@ function SP!(m::JuMP.Model,
     @constraint(m, c07[b=ps.B,s=ps.S,h=ps.H], yI[b,s,h] <= pp.pb[b]*x[ps.b0+b])
     @constraint(m, c08[b=ps.B,s=ps.S,h=ps.H], yO[b,s,h] <= pp.pb[b]*x[ps.b0+b])
     @constraint(m, c09[b=ps.B,s=ps.S,h=ps.H], yL[b,s,h] <= x[ps.b0+b])
-    @constraint(m, c10[s=ps.S,h=ps.H], sum(yG[g,s,h] for g in ps.G) + sum(yO[b,s,h]-yI[b,s,h] for b in ps.B) + yS[s,h] >= -x[hc.nx0+1]*pp.pd[s,h] - sum(pp.pr[r,s,h]*x[ps.r0+r] for r in ps.R))
+    @constraint(m, c10[r=ps.R,s=ps.S,h=ps.H], yR[r,s,h] <= pp.pr[r,s,h]*x[ps.r0+r])
+    @constraint(m, c11[s=ps.S,h=ps.H], sum(yG[g,s,h] for g in ps.G) + sum(yO[b,s,h]-yI[b,s,h] for b in ps.B) + sum(yR[r,s,h] for r in ps.R) + yS[s,h] == -x[hc.nx0+1]*pp.pd[s,h] )
 
     return m
 end
@@ -150,7 +152,8 @@ function create_RMPo(ms::ms_struct,
     rmBo = MUo(rmB,Array{VariableRef  ,2}(undef,hc.ny,al.J+1))
     sp = create_SPo(ps,pp,hc)
     xm,cm = vcat(minimum(mp.xh,dims=1)[:],[minimum(hc.h)]),[minimum(hc.c)]
-    return RMPs(rmLo,rmUo,rmBo,sp,xm,cm,hc.nx,hc.nc,zeros(hc.nx,hc.ny),hc.h,hc.c,ms.Io,zeros(hc.ny),zeros(hc.ny),-Inf,Inf,Inf,zeros(0),zeros(0),zeros(0),0,al.ϵ,al.J)
+    ls = LSs(zeros(ms.Io[end],ps.G[end]),zeros(ms.Io[end],ps.B[end]),zeros(ms.Io[end],ps.B[end]),zeros(ms.Io[end],ps.R[end]),zeros(ms.Io[end]))
+    return RMPs(rmLo,rmUo,rmBo,sp,xm,cm,hc.nx,hc.nc,zeros(hc.nx,hc.ny),hc.h,hc.c,ms.Io,zeros(hc.ny),zeros(hc.ny),-Inf,Inf,Inf,zeros(0),zeros(0),zeros(0),0,al.ϵ,al.J,ls)
 
 end
 
@@ -218,9 +221,37 @@ function solve_RMP!(rmp::RMPs)::RMPs
 
 end
 
+function last_step_RMP!(rmp::RMPs,
+                         hc::hc_struct,
+                         ps::ps_struct)::RMPs
+
+    xo,co =zeros(hc.nx),zeros(hc.nc)
+    for io in RMP.Io
+        xo .= value.(RMP.mU.m[:xo][:,io])
+        co .= RMP.c[io]
+        update_and_solve_SPo!(RMP.sp,xo,co)
+        for g in ps.G
+            RMP.ls.G[io,g] = sum(value.(RMP.sp.m[:yG][g,:,:]))/1.0e6
+        end
+        for b in ps.B
+            RMP.ls.Bi[io,b] = sum(value.(RMP.sp.m[:yI][b,:,:]))/1.0e6
+            RMP.ls.Bo[io,b] = sum(value.(RMP.sp.m[:yO][b,:,:]))/1.0e6
+        end
+        for r in ps.R
+            RMP.ls.R[io,r] = sum(value.(RMP.sp.m[:yR][r,:,:]))/1.0e6
+        end
+        RMP.ls.E[io] = value(RMP.sp.m[:ϕ][1])/1.0e6
+    end
+    return rmp
+
+end
+
 # */ ---------------------------------------------------------------------- /* #
 
-function write_output(rmp::RMPs,ms::ms_struct)
+function write_output(rmp::RMPs,
+                       ms::ms_struct,
+                       ps::ps_struct,
+                       sd::sd_struct)
 
     XLSX.openxlsx("$(pwd())/output/results.xlsx", mode="w") do xf
 
@@ -261,6 +292,47 @@ function write_output(rmp::RMPs,ms::ms_struct)
         sheet[3,ms.P[end]+4] = "Operation cost"
         sheet[4,ms.P[end]+4] = "(10^9 £)"
         sheet[5,ms.P[end]+4] = sum(value.(rmp.mU.m[:β]))*1.0e-9
+
+        XLSX.addsheet!(xf)
+        sheet = xf[3]
+        XLSX.rename!(sheet, "Usage_Conventional")
+        sheet["A1"] = "Total yearly usage of conventional technologies"
+        sheet["A3"] = "Years"
+        sheet["A5", dim=1] = sd.yrs
+        sheet["B3", dim=2] = sd.techs[ps.G]
+        sheet["B4", dim=2] = repeat(["(TWh)"],ps.G[end])
+        sheet["B5"] = RMP.ls.G
+
+        XLSX.addsheet!(xf)
+        sheet = xf[4]
+        XLSX.rename!(sheet, "Usage_Storage")
+        sheet["A1"] = "Total yearly usage of storage technologies"
+        sheet["A3"] = "Years"
+        sheet["A5", dim=1] = sd.yrs
+        sheet["B3", dim=2] = repeat(sd.techs[ps.b0.+ps.B],2) .* vcat(repeat([" (charge)"],ps.B[end]),repeat([" (discharge)"],ps.B[end]))
+        sheet["B4", dim=2] = repeat(["(TWh)"],2*ps.B[end])
+        sheet[XLSX.encode_column_number(2).*"5"]           = RMP.ls.Bi
+        sheet[XLSX.encode_column_number(2+ps.B[end]).*"5"] = RMP.ls.Bo
+
+        XLSX.addsheet!(xf)
+        sheet = xf[5]
+        XLSX.rename!(sheet, "Usage_Renewable")
+        sheet["A1"] = "Total yearly usage of renewable technologies"
+        sheet["A3"] = "Years"
+        sheet["A5", dim=1] = sd.yrs
+        sheet["B3", dim=2] = sd.techs[ps.r0.+ps.R]
+        sheet["B4", dim=2] = repeat(["(TWh)"],ps.R[end])
+        sheet["B5"] = RMP.ls.R
+
+        XLSX.addsheet!(xf)
+        sheet = xf[6]
+        XLSX.rename!(sheet, "Emissions")
+        sheet["A1"] = "Total yearly CO2 emissions"
+        sheet["A3"] = "Years"
+        sheet["A5", dim=1] = sd.yrs
+        sheet["B3"] = "CO2 emissions"
+        sheet["B4"] = "(MtCO2)"
+        sheet["B5", dim=1] = RMP.ls.E
 
     end
 
