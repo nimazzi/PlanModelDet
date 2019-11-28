@@ -23,7 +23,8 @@ function RMP0!(m::JuMP.Model,
     @constraint(m, c2[p=ms.P,io=ms.Io], xo[p,io] == mp.xh[io,p] + sum(xi[p,ii] for ii in mp.map[p,io]) )
     @constraint(m, c3[p=ms.P,io=ms.Io], xo[p,io] >= .0 )
     @constraint(m, c4[p=ms.P,io=ms.Io], xo[p,io] <= mp.xm[p] )
-    @constraint(m, c6[       io=ms.Io], xo[hc.nx0+1,io] == hc.h[io,1] )
+    @constraint(m, c5[       io=ms.Io], xo[hc.nx0+1,io] == hc.h[io,1] )
+    @constraint(m, c6[       io=ms.Io], xo[hc.nx0+2,io] == hc.h[io,2] )
     # */ ----------------------------------- /* #
 
     return m
@@ -96,6 +97,7 @@ function SP!(m::JuMP.Model,
     @constraint(m, c09[b=ps.B,s=ps.S,h=ps.H], yL[b,s,h] <= x[ps.b0+b])
     @constraint(m, c10[r=ps.R,s=ps.S,h=ps.H], yR[r,s,h] <= pp.pr[r,s,h]*x[ps.r0+r])
     @constraint(m, c11[s=ps.S,h=ps.H], sum(yG[g,s,h] for g in ps.G) + sum(yO[b,s,h]-yI[b,s,h] for b in ps.B) + sum(yR[r,s,h] for r in ps.R) + yS[s,h] == -x[hc.nx0+1]*pp.pd[s,h] )
+    @constraint(m, c12, ϕ[1] <= x[hc.nx0+2]*1.0e6 )
 
     return m
 end
@@ -151,8 +153,8 @@ function create_RMPo(ms::ms_struct,
     rmUo = MUo(rmU,Array{VariableRef  ,2}(undef,hc.ny,al.J+1))
     rmBo = MUo(rmB,Array{VariableRef  ,2}(undef,hc.ny,al.J+1))
     sp = create_SPo(ps,pp,hc)
-    xm,cm = vcat(minimum(mp.xh,dims=1)[:],[minimum(hc.h)]),[minimum(hc.c)]
-    ls = LSs(zeros(ms.Io[end],ps.G[end]),zeros(ms.Io[end],ps.B[end]),zeros(ms.Io[end],ps.B[end]),zeros(ms.Io[end],ps.R[end]),zeros(ms.Io[end]))
+    xm,cm = vcat(minimum(mp.xh,dims=1)[:],minimum(hc.h,dims=1)[:]),minimum(hc.c,dims=1)[:]
+    ls = LSs(zeros(ms.Io[end],ps.G[end]),zeros(ms.Io[end],ps.B[end]),zeros(ms.Io[end],ps.B[end]),zeros(ms.Io[end],ps.R[end]),zeros(ms.Io[end]),zeros(ms.Io[end]))
     return RMPs(rmLo,rmUo,rmBo,sp,xm,cm,hc.nx,hc.nc,zeros(hc.nx,hc.ny),hc.h,hc.c,ms.Io,zeros(hc.ny),zeros(hc.ny),-Inf,Inf,Inf,zeros(0),zeros(0),zeros(0),0,al.ϵ,al.J,ls)
 
 end
@@ -225,23 +227,24 @@ function last_step_RMP!(rmp::RMPs,
                          hc::hc_struct,
                          ps::ps_struct)::RMPs
 
-    xo,co =zeros(hc.nx),zeros(hc.nc)
-    for io in RMP.Io
-        xo .= value.(RMP.mU.m[:xo][:,io])
-        co .= RMP.c[io]
-        update_and_solve_SPo!(RMP.sp,xo,co)
-        for g in ps.G
-            RMP.ls.G[io,g] = sum(value.(RMP.sp.m[:yG][g,:,:]))/1.0e6
-        end
-        for b in ps.B
-            RMP.ls.Bi[io,b] = sum(value.(RMP.sp.m[:yI][b,:,:]))/1.0e6
-            RMP.ls.Bo[io,b] = sum(value.(RMP.sp.m[:yO][b,:,:]))/1.0e6
-        end
-        for r in ps.R
-            RMP.ls.R[io,r] = sum(value.(RMP.sp.m[:yR][r,:,:]))/1.0e6
-        end
-        RMP.ls.E[io] = value(RMP.sp.m[:ϕ][1])/1.0e6
-    end
+     xo,co =zeros(hc.nx),zeros(hc.nc)
+     for io in rmp.Io
+         xo .= value.(rmp.mU.m[:xo][:,io])
+         co .= rmp.c[io]
+         update_and_solve_SPo!(rmp.sp,xo,co)
+         for g in ps.G
+             rmp.ls.G[io,g] = sum(value.(rmp.sp.m[:yG][g,:,:]))/1.0e6
+         end
+         for b in ps.B
+             rmp.ls.Bi[io,b] = sum(value.(rmp.sp.m[:yI][b,:,:]))/1.0e6
+             rmp.ls.Bo[io,b] = sum(value.(rmp.sp.m[:yO][b,:,:]))/1.0e6
+         end
+         for r in ps.R
+             rmp.ls.R[io,r] = sum(value.(rmp.sp.m[:yR][r,:,:]))/1.0e6
+         end
+         rmp.ls.E[io] = value(rmp.sp.m[:ϕ][1])/1.0e6
+         rmp.ls.C[io] = -dual(rmp.sp.m[:c12])
+     end
     return rmp
 
 end
@@ -333,6 +336,9 @@ function write_output(rmp::RMPs,
         sheet["B3"] = "CO2 emissions"
         sheet["B4"] = "(MtCO2)"
         sheet["B5", dim=1] = RMP.ls.E
+        sheet["C3"] = "additional CO2 price"
+        sheet["C4"] = "(£/tCO2)"
+        sheet["C5", dim=1] = RMP.ls.C
 
     end
 

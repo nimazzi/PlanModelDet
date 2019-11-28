@@ -22,7 +22,7 @@ function load_data()::Tuple{ms_struct,mp_struct,ps_struct,pp_struct,hc_struct,sd
     for r in 1:3 for s in 1:4 pr[r,s,:] = RDF[:,(r-1)*4+s] end end
     # */ -------------------------------------------------------------------*/ #
 
-    # */ --- Renewables ----------------------------------------------------*/ #
+    # */ --- Demand --------------------------------------------------------*/ #
     DDF = convert(Array{Float64,2},XF["Demand!B2:E2191"])
     pd = zeros(4,2190)
     for s in 1:4 pd[s,:] = DDF[:,s] end
@@ -45,12 +45,13 @@ function load_data()::Tuple{ms_struct,mp_struct,ps_struct,pp_struct,hc_struct,sd
     # */ --- TimeLine ------------------------------------------------------*/ #
     ny = length(XF["TimelineData!A:A"])-2
     yrs = convert(Array{Int64,2},XF["TimelineData!A3:A$(ny+2)"])[:]
-    TDF1 = convert(Array{Float64,2},XF["TimelineData!B3:D$(ny+2)"])
+    TDF1 = convert(Array{Float64,2},XF["TimelineData!B3:E$(ny+2)"])
     νD  = TDF1[:,1]
     co  = TDF1[:,2]
-    ib  = convert(Array{Int64,1},TDF1[:,3])
+    lc  = TDF1[:,3]
+    ib  = convert(Array{Int64,1},TDF1[:,4])
     yri = yrs[Bool.(ib)]
-    TDF2 = convert(Array{Float64,2},XF["TimelineData!F3:Q$(ny+2)"])
+    TDF2 = convert(Array{Float64,2},XF["TimelineData!G3:R$(ny+2)"])
     xh = TDF2[:,:]
     # */ -------------------------------------------------------------------*/ #
 
@@ -98,21 +99,22 @@ function load_data()::Tuple{ms_struct,mp_struct,ps_struct,pp_struct,hc_struct,sd
     # */ -------------------------------------------------------------------*/ #
 
     # */ --- hc_struct -----------------------------------------------------*/ #
-    h,c = zeros((ny,1)),zeros((ny,1))
+    h,c = zeros((ny,2)),zeros((ny,1))
     h[:,1] = -νD
+    h[:,2] = lc
     c[:,1] = co
     nx0 = P[end]
 
-    HC = hc_struct(h,c,nx0+1,1,nx0,ny)
+    HC = hc_struct(h,c,nx0+2,1,nx0,ny)
     # */ -------------------------------------------------------------------*/ #
 
     # */ --- sd_struct -----------------------------------------------------*/ #
     ny = length(XF["TimelineData!A:A"])-2
     yrs = convert(Array{Int64,2},XF["TimelineData!A3:A$(ny+2)"])[:]
-    TDF1 = convert(Array{Float64,2},XF["TimelineData!B3:D$(ny+2)"])
-    ib  = convert(Array{Int64,1},TDF1[:,3])
+    TDF1 = convert(Array{Float64,2},XF["TimelineData!B3:E$(ny+2)"])
+    ib  = convert(Array{Int64,1},TDF1[:,4])
     yri = yrs[Bool.(ib)]
-    techs = convert(Array{String,1},XF["TimelineData!F1:Q1"][:])
+    techs = convert(Array{String,1},XF["TimelineData!G1:R1"][:])
     SD = sd_struct(yrs,yri,ib,techs)
     # */ -------------------------------------------------------------------*/ #
 

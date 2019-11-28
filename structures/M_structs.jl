@@ -29,6 +29,7 @@ mutable struct LSs{AF1<:Array{Float64,1},AF2<:Array{Float64,2}}
    Bo::AF2
     R::AF2
     E::AF1
+    C::AF1
 end
 
 mutable struct RMPs{I<:Int64,F<:Float64,AF1<:Array{Float64,1},AF2<:Array{Float64,2}}
