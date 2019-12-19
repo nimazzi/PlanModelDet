@@ -107,7 +107,7 @@ function create_SPo(ps::ps_struct,
                     hc::hc_struct)::SPs
 
     gurobi_env = @suppress Gurobi.Env()
-    m = JuMP.Model(JuMP.with_optimizer(Gurobi.Optimizer,gurobi_env,OutputFlag=0))
+    m = JuMP.Model(JuMP.with_optimizer(Gurobi.Optimizer,gurobi_env,OutputFlag=0,Method=2))
     SP!(m,ps,pp,hc)
     x,λ = zeros(hc.nx),zeros(hc.nx)
     c,ϕ = zeros(hc.nc),zeros(hc.nc)
